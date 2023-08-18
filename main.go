@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+
 	"log"
 	"net/http"
 	"os"
@@ -54,14 +55,31 @@ func main()  {
 		if err != nil {respondWithError(w,403,err.Error());return}
 		respondWithJSON(w,201,newUser)
 	})
-	a.Get("/users",func(w http.ResponseWriter, r *http.Request) {
-		api_key := strings.TrimPrefix(r.Header.Get("Authorization")," ApiKey ") 
-		newUsers,err := cfg.DB.GetUsersByAPIkey(r.Context(),api_key)
-		if err != nil {respondWithError(w,404,err.Error());return}
-		respondWithJSON(w,200,newUsers)
-	})
+	a.Get("/users", cfg.middlewareAuth(func(w http.ResponseWriter, r *http.Request, u database.User) {
+		newUsers, err := cfg.DB.GetUsersByAPIkey(r.Context(), u.ApiKey)
+    if err != nil {
+        respondWithError(w, 404, err.Error())
+        return
+    }
+    respondWithJSON(w, 200, newUsers)
+	}))
+	a.Post("/feeds",cfg.middlewareAuth(func(w http.ResponseWriter, r *http.Request, u database.User) {
+		decoder := json.NewDecoder(r.Body)
+		request := request{}
+		decoder.Decode(&request)
+		param := database.CreateFeedParams{
+			ID: uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Name: request.Name,
+			Url: request.URL,
+			UserID: u.ID,
+		}
+		newFeed,err := cfg.DB.CreateFeed(r.Context(),param)
+		if err != nil {respondWithError(w, 404, err.Error());return}
+		respondWithJSON(w,201,newFeed)
 
-
+	}))
 
 
 
@@ -97,4 +115,21 @@ type apiConfig struct {
 
 type request struct {
 	Name string `json:"name,omitempty"`
+	URL string `json:"url,omitempty"`
+}
+
+
+type authedHandler func(http.ResponseWriter, *http.Request, database.User)
+
+func(cfg *apiConfig) middlewareAuth(handle authedHandler) http.HandlerFunc{
+	return func(w http.ResponseWriter, r *http.Request) {
+		api_key := strings.TrimPrefix(r.Header.Get("Authorization"),"ApiKey ")
+		if api_key == ""{
+			http.Error(w, "Missing API key", http.StatusUnauthorized)
+            return
+		}
+		users,err := cfg.DB.GetUsersByAPIkey(r.Context(),api_key)
+		if err != nil {respondWithError(w,404,err.Error());return}
+		handle(w,r,users)
+	}
 }
