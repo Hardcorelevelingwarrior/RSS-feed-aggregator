@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Hardcorelevelingwarrior/RSS-feed-aggregator/internal/database"
@@ -53,7 +54,12 @@ func main()  {
 		if err != nil {respondWithError(w,403,err.Error());return}
 		respondWithJSON(w,201,newUser)
 	})
-
+	a.Get("/users",func(w http.ResponseWriter, r *http.Request) {
+		api_key := strings.TrimPrefix(r.Header.Get("Authorization")," ApiKey ") 
+		newUsers,err := cfg.DB.GetUsersByAPIkey(r.Context(),api_key)
+		if err != nil {respondWithError(w,404,err.Error());return}
+		respondWithJSON(w,200,newUsers)
+	})
 
 
 
