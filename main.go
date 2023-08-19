@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-
 	"log"
 	"net/http"
 	"os"
@@ -50,8 +49,7 @@ func main()  {
 			UpdatedAt: time.Now(),
 			Name: request.Name,
 		}
-		newUser := database.User{}
-		newUser,err = cfg.DB.CreateUser(r.Context(),param)
+		newUser,err := cfg.DB.CreateUser(r.Context(),param)
 		if err != nil {respondWithError(w,403,err.Error());return}
 		respondWithJSON(w,201,newUser)
 	})
@@ -77,13 +75,55 @@ func main()  {
 		}
 		newFeed,err := cfg.DB.CreateFeed(r.Context(),param)
 		if err != nil {respondWithError(w, 404, err.Error());return}
-		respondWithJSON(w,201,newFeed)
+		paramfeedfollow := database.CreateFeedFollowParams{
+			ID: uuid.New(),
+			FeedID: newFeed.ID,
+			UserID: u.ID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		feedfollow ,er:= cfg.DB.CreateFeedFollow(r.Context(),paramfeedfollow)
+		if er != nil {respondWithError(w,404,er.Error());return}
+		respondWithJSON(w, http.StatusCreated, map[string]interface{}{
+			"feed":        newFeed,
+			"feed_follow": feedfollow,
+		})
 
 	}))
+	a.Get("/feeds",func(w http.ResponseWriter, r *http.Request) {
+		feeds ,err:= cfg.DB.GetAllFeeds(r.Context())
+		if err != nil {respondWithError(w,404,err.Error());return}
+		respondWithJSON(w,200,feeds)
+	})
+	a.Post("/feed_follows",cfg.middlewareAuth(func(w http.ResponseWriter, r *http.Request, u database.User) {
+		decoder := json.NewDecoder(r.Body)
+		request := request{}
+		decoder.Decode(&request)
+		param := database.CreateFeedFollowParams{
+			ID: uuid.New(),
+			FeedID: request.Feed_id,
+			UserID: u.ID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		feedfollow ,err := cfg.DB.CreateFeedFollow(r.Context(),param)
+		if err != nil {respondWithError(w,404,err.Error())}
+		respondWithJSON(w,201,feedfollow)
 
+	}))
+	a.Delete("/feed_follows/{feedFollowID}",func(w http.ResponseWriter, r *http.Request) {
+		feedfollowid := chi.URLParam(r,"feedFollowID")
+		id ,er := uuid.Parse(feedfollowid) 
+		if er != nil {respondWithError(w,404,er.Error());return}
+		err := cfg.DB.DeleteFeedFollow(r.Context(),id)
+		if err != nil {respondWithError(w,404,er.Error())}
 
-
-
+	})
+	a.Get("/feed_follows",cfg.middlewareAuth(func(w http.ResponseWriter, r *http.Request, u database.User) {
+		feedfollow,err := cfg.DB.GetFeedFollowForUser(r.Context(),u.ID)
+		if err != nil {respondWithError(w,404,err.Error());return}
+		respondWithJSON(w,200,feedfollow) 
+	}))
 
 
 	//Start server
@@ -116,6 +156,7 @@ type apiConfig struct {
 type request struct {
 	Name string `json:"name,omitempty"`
 	URL string `json:"url,omitempty"`
+	Feed_id uuid.UUID `json:"feed_id,omitempty"`
 }
 
 
