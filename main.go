@@ -3,10 +3,14 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Hardcorelevelingwarrior/RSS-feed-aggregator/internal/database"
@@ -17,7 +21,37 @@ import (
 	_ "github.com/lib/pq"
 )
 
+var feeds = []string{
+    "https://blog.boot.dev/index.xml",
+    "https://wagslane.dev/index.xml",
+    // add more feeds here...
+}
+
+func worker() {
+	for range time.Tick(interval) {
+		var wg sync.WaitGroup
+		for _, feed := range feeds[:n] {
+			wg.Add(1)
+			go func(feed string) {
+				defer wg.Done()
+				rss, err := fetchdatafromfeed(feed)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				fmt.Println(rss.Channel.Title)
+				for _, item := range rss.Channel.Items {
+					fmt.Println(item.Title)
+				}
+			}(feed)
+		}
+		wg.Wait()
+	}
+}
+
 func main()  {
+	go worker()
+	select {}
 	godotenv.Load()
 	dbURL := os.Getenv("CONN")
 	db, err := sql.Open("postgres",dbURL)
@@ -199,3 +233,37 @@ func databaseFeedtoFeed(feed database.Feed) Feed {
         LastFetchedAt: lastFetchedAt,
     }
 }
+type Item struct {
+	Title string `xml:"title"`
+	Link  string `xml:"link"`
+}
+
+type Channel struct {
+	Title string `xml:"title"`
+	Items []Item `xml:"item"`
+}
+
+type RSS struct {
+	Channel Channel `xml:"channel"`
+}
+
+func fetchdatafromfeed (url string) (*RSS, error) {
+	resp ,err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var rss RSS
+	err = xml.Unmarshal(data, &rss)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rss, nil
+}
+const interval = 60 * time.Second
+const n = 10
