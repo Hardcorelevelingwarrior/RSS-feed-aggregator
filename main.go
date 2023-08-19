@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"encoding/xml"
@@ -27,7 +28,7 @@ var feeds = []string{
     // add more feeds here...
 }
 
-func worker() {
+func (cfg *apiConfig) worker() {
 	for range time.Tick(interval) {
 		var wg sync.WaitGroup
 		for _, feed := range feeds[:n] {
@@ -41,7 +42,17 @@ func worker() {
 				}
 				fmt.Println(rss.Channel.Title)
 				for _, item := range rss.Channel.Items {
-					fmt.Println(item.Title)
+					param := database.CreatePostParams{
+						ID: item.Id,
+						CreatedAt: item.CreatedAt,
+						UpdatedAt: item.UpdatedAt,
+						Title: item.Title,
+						Url: item.Link,
+						PublishedAt: item.PublishedAt,
+						FeedID: item.FeedId ,
+
+					}
+					cfg.DB.CreatePost(context.Background(),param)
 				}
 			}(feed)
 		}
@@ -50,8 +61,6 @@ func worker() {
 }
 
 func main()  {
-	go worker()
-	select {}
 	godotenv.Load()
 	dbURL := os.Getenv("CONN")
 	db, err := sql.Open("postgres",dbURL)
@@ -166,6 +175,8 @@ func main()  {
 		Handler: router,
 	}
 	log.Fatal(srv.ListenAndServe())
+	go cfg.worker()
+	select {}
 	
 }
 
@@ -234,8 +245,13 @@ func databaseFeedtoFeed(feed database.Feed) Feed {
     }
 }
 type Item struct {
+	Id uuid.UUID `xml:"id"`
 	Title string `xml:"title"`
 	Link  string `xml:"link"`
+	CreatedAt time.Time `xml:"created_at"`
+	UpdatedAt time.Time `xml:"updated_at"`
+	PublishedAt time.Time `xml:"published_at"`
+	FeedId uuid.UUID `xml:"feed_id"`
 }
 
 type Channel struct {
@@ -265,5 +281,6 @@ func fetchdatafromfeed (url string) (*RSS, error) {
 
 	return &rss, nil
 }
+
 const interval = 60 * time.Second
 const n = 10
